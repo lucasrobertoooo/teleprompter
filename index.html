@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Teleprompter</title>
+<style>
+:root{
+  --bg:#0b0b0c;--panel:#17171a;--panel2:#202024;--line:#2c2c31;--text:#f2f2f3;--muted:#9a9aa2;
+  --accent:#ff3b30;--ok:#30d158;--warn:#ffd60a;
+  --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);--sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;overscroll-behavior:none}
+body{touch-action:manipulation}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:var(--panel2);border-radius:12px;padding:10px 14px;min-height:44px}
+button.primary{background:var(--accent);color:#fff;font-weight:600}
+button.ghost{background:transparent}
+button:disabled{opacity:.5}
+input[type=text],input[type=password],input[type=search],textarea,select{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;width:100%;font-size:16px}
+.screen{display:none;position:fixed;inset:0;flex-direction:column}
+.screen.on{display:flex}
+.hdr{display:flex;align-items:center;gap:8px;padding:calc(var(--st) + 8px) calc(var(--sr) + 12px) 8px calc(var(--sl) + 12px);border-bottom:1px solid var(--line);background:var(--bg)}
+.hdr h1{font-size:20px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px calc(var(--sr) + 12px) calc(var(--sb) + 24px) calc(var(--sl) + 12px)}
+.center{max-width:420px;margin:0 auto;padding:calc(var(--st) + 48px) 20px 40px;width:100%}
+.center h1{font-size:28px;margin:0 0 6px}
+.muted{color:var(--muted);font-size:14px}
+.err{color:#ff6961;font-size:14px;min-height:20px;margin:8px 0}
+.field{margin:12px 0}
+.field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+.row{display:flex;gap:8px;align-items:center}
+.chk{display:flex;gap:10px;align-items:center;margin:12px 0;font-size:15px}
+.chk input{width:22px;height:22px}
+ol.steps{padding-left:20px;font-size:14px;color:var(--muted)}
+ol.steps li{margin:6px 0}
+a{color:#64a8ff}
+/* list */
+.item{display:flex;align-items:stretch;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:10px;overflow:hidden}
+.item .main{flex:1;padding:12px 14px;min-width:0;cursor:pointer}
+.item .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .p{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.item .m{color:var(--muted);font-size:12px;margin-top:4px}
+.item .play{border-radius:0;background:var(--panel2);width:64px;font-size:22px}
+.item .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:6px;vertical-align:middle}
+.empty{text-align:center;color:var(--muted);padding:60px 20px}
+.pill{font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap;min-height:0}
+.pill.ok::before{content:"● ";color:var(--ok)}
+.pill.sync::before{content:"● ";color:var(--warn)}
+.pill.off::before,.pill.err::before{content:"● ";color:var(--accent)}
+.toolbar{display:flex;gap:8px;margin-bottom:12px}
+.toolbar input{flex:1}
+/* editor */
+#edTitle{font-size:18px;font-weight:600;border:0;background:transparent;padding:6px 0;border-radius:0}
+#edBody{flex:1;resize:none;border:0;border-radius:0;background:var(--bg);padding:14px calc(var(--sr) + 14px) calc(var(--sb) + 14px) calc(var(--sl) + 14px);font-size:17px;line-height:1.55;outline:none}
+.edfoot{display:flex;justify-content:space-between;gap:8px;padding:6px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
+/* menus/sheets */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;display:none}
+.backdrop.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--panel);border-radius:18px 18px 0 0;max-height:82vh;overflow:auto;padding:14px calc(var(--sr) + 16px) calc(var(--sb) + 18px) calc(var(--sl) + 16px);transform:translateY(105%);transition:transform .22s ease;max-width:640px;margin:0 auto}
+.sheet.on{transform:none}
+.sheet h3{margin:4px 0 10px;font-size:17px}
+.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+.menu button{display:block;width:100%;text-align:left;margin-bottom:8px;background:var(--panel2)}
+.menu button.danger{color:#ff6961}
+.set{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.set label{font-size:14px}
+.set .v{font-size:13px;color:var(--muted);min-width:44px;text-align:right}
+.set input[type=range]{grid-column:1/3;width:100%;accent-color:var(--accent);height:28px}
+.set select{grid-column:2;width:auto;padding:6px 10px}
+.set input[type=checkbox]{width:24px;height:24px;accent-color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:calc(var(--sb) + 90px);transform:translateX(-50%);background:#2c2c31;color:#fff;padding:10px 16px;border-radius:12px;z-index:99;font-size:14px;max-width:90vw;text-align:center;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+/* prompter */
+#prompter{background:#000;overflow:hidden}
+#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+#cam.selfie{transform:scaleX(-1)}
+#prompter.camera #cam{display:block}
+#stage{position:absolute;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+#ptext{position:absolute;left:0;right:0;top:0;will-change:transform;white-space:pre-wrap;word-wrap:break-word}
+#ptext p{margin:0}
+#ptext p.gap{height:.7em}
+#ptext h2{font-size:.7em;margin:.6em 0 .3em;padding:.15em .4em;border-radius:.2em;background:rgba(255,59,48,.22);color:inherit;display:inline-block;font-weight:700}
+#ptext .cue{opacity:.55;font-style:italic;font-weight:400}
+#ptext .end{opacity:.4;text-align:center;font-size:.6em;padding-top:1em}
+#guide{position:absolute;left:0;right:0;pointer-events:none;border-top:2px solid rgba(255,59,48,.75);background:linear-gradient(rgba(255,59,48,.10),transparent)}
+#guide::before{content:"";position:absolute;left:4px;top:-9px;border:8px solid transparent;border-left:12px solid rgba(255,59,48,.95)}
+.pbar{position:absolute;left:0;right:0;z-index:5;display:flex;align-items:center;gap:6px;padding:8px calc(var(--sr) + 8px) 8px calc(var(--sl) + 8px);background:rgba(10,10,12,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:opacity .3s}
+#ptop{top:0;padding-top:calc(var(--st) + 6px)}
+#pbottom{bottom:0;padding-bottom:calc(var(--sb) + 8px);justify-content:center;flex-wrap:wrap}
+.pbar button{background:rgba(255,255,255,.1);min-width:40px;padding:8px 4px;font-size:17px}
+#pbottom{gap:5px}
+#pbottom .big{background:var(--accent);min-width:58px;font-size:22px}
+#ptitle{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ptime{font-size:12px;color:#ccc;font-variant-numeric:tabular-nums;white-space:nowrap}
+#pspeed{font-size:13px;color:#ccc;min-width:40px;text-align:center;font-variant-numeric:tabular-nums}
+#pprog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.12);z-index:6}
+#pprog i{display:block;height:100%;width:0;background:var(--accent)}
+#prompter.hidectl .pbar{opacity:0;pointer-events:none}
+#countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:30vmin;font-weight:800;color:#fff;z-index:8;text-shadow:0 4px 30px #000;pointer-events:none}
+#countdown.on{display:flex}
+#recdot{display:none;color:var(--accent);font-size:13px;font-weight:700;white-space:nowrap}
+#prompter.recording #recdot{display:inline}
+#prompter.recording #btnRec{background:var(--accent)}
+#btnRec{display:none}
+#prompter.camera #btnRec{display:inline-block}
+.sep{width:1px;height:28px;background:rgba(255,255,255,.15);margin:0 2px}
+#secList button{display:block;width:100%;text-align:left;margin-bottom:6px}
+@media (min-width:700px){.pbar button{min-width:52px}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section id="login" class="screen">
+  <div class="center">
+    <h1>Teleprompter</h1>
+    <p class="muted">Digite a senha para acessar seus roteiros.</p>
+    <form id="loginForm" autocomplete="on">
+      <input type="text" name="username" value="teleprompter" autocomplete="username" hidden>
+      <div class="field"><input id="loginPw" type="password" placeholder="Senha" autocomplete="current-password" required></div>
+      <label class="chk"><input id="loginRemember" type="checkbox" checked> Lembrar neste aparelho</label>
+      <div id="loginErr" class="err"></div>
+      <button class="primary" style="width:100%" id="loginBtn">Entrar</button>
+    </form>
+  </div>
+</section>
+
+<!-- SETUP -->
+<section id="setup" class="screen">
+  <div class="scroll"><div class="center" style="padding-top:calc(var(--st) + 24px)">
+    <h1>Configuração inicial</h1>
+    <p class="muted">Feita uma única vez. Os roteiros ficam guardados criptografados no próprio repositório do GitHub, e qualquer aparelho acessa só com a senha.</p>
+    <ol class="steps">
+      <li>Abra <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a></li>
+      <li>Nome: <b>teleprompter</b>. Validade: a maior possível.</li>
+      <li>Repository access: <b>Only select repositories</b> → escolha <b id="setupRepoName">este repositório</b>.</li>
+      <li>Permissions → Repository permissions → <b>Contents: Read and write</b>.</li>
+      <li>Gere o token e cole abaixo.</li>
+    </ol>
+    <form id="setupForm">
+      <div class="field"><label>Repositório (dono/nome)</label><input id="setupRepo" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" required></div>
+      <div class="field"><label>Token do GitHub</label><input id="setupToken" type="password" autocomplete="off" placeholder="github_pat_…" required></div>
+      <input type="text" name="username" value="teleprompter" autocomplete="username" hidden>
+      <div class="field"><label>Crie a senha de acesso</label><input id="setupPw" type="password" autocomplete="new-password" required minlength="4"></div>
+      <div class="field"><label>Repita a senha</label><input id="setupPw2" type="password" autocomplete="new-password" required></div>
+      <div id="setupErr" class="err"></div>
+      <button class="primary" style="width:100%" id="setupBtn">Salvar configuração</button>
+    </form>
+  </div></div>
+</section>
+
+<!-- LIST -->
+<section id="list" class="screen">
+  <div class="hdr">
+    <h1>Roteiros</h1>
+    <button class="pill" id="syncPill">…</button>
+    <button id="btnMenu" aria-label="Menu">⋯</button>
+  </div>
+  <div class="scroll">
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Buscar">
+      <button id="btnImport">Importar</button>
+      <button class="primary" id="btnNew">+ Novo</button>
+    </div>
+    <div id="items"></div>
+  </div>
+  <input id="fileInput" type="file" accept=".txt,.md,.markdown,.text,.docx,.rtf,text/plain" multiple hidden>
+</section>
+
+<!-- EDITOR -->
+<section id="editor" class="screen">
+  <div class="hdr">
+    <button class="ghost" id="edBack" aria-label="Voltar">‹ Roteiros</button>
+    <div style="flex:1"></div>
+    <button id="edMore" aria-label="Opções">⋯</button>
+    <button class="primary" id="edPlay">▶ Ler</button>
+  </div>
+  <div style="padding:6px calc(var(--sr) + 14px) 0 calc(var(--sl) + 14px);border-bottom:1px solid var(--line)">
+    <input id="edTitle" type="text" placeholder="Título">
+  </div>
+  <textarea id="edBody" placeholder="Escreva ou cole o roteiro aqui.
+
+Dicas:
+# Título de seção  → vira marcador para pular
+[PAUSA] ou [sorria] → aparece como nota discreta
+**palavra** → destaque em negrito"></textarea>
+  <div class="edfoot"><span id="edStats"></span><span id="edState"></span></div>
+</section>
+
+<!-- PROMPTER -->
+<section id="prompter" class="screen">
+  <video id="cam" playsinline muted autoplay></video>
+  <div id="stage"><div id="ptext"></div><div id="guide"></div></div>
+  <div id="countdown"></div>
+  <div id="ptop" class="pbar">
+    <button id="pClose" aria-label="Fechar">✕</button>
+    <div id="ptitle"></div>
+    <span id="recdot">● REC</span>
+    <span id="ptime">0:00</span>
+    <button id="pSections" aria-label="Seções">☰</button>
+    <button id="pSettings" aria-label="Ajustes">⚙</button>
+    <button id="pFull" aria-label="Tela cheia" hidden>⛶</button>
+  </div>
+  <div id="pbottom" class="pbar">
+    <button id="pRestart" aria-label="Voltar ao início">⏮</button>
+    <button id="pSlower" aria-label="Mais devagar">−</button>
+    <button id="pPlay" class="big" aria-label="Iniciar">▶</button>
+    <button id="pFaster" aria-label="Mais rápido">+</button>
+    <span id="pspeed"></span>
+    <button id="pFontDown" aria-label="Diminuir fonte">A−</button>
+    <button id="pFontUp" aria-label="Aumentar fonte">A+</button>
+    <button id="btnRec" aria-label="Gravar">⏺</button>
+    <div id="pprog"><i></i></div>
+  </div>
+</section>
+
+<div id="backdrop" class="backdrop"></div>
+<div id="sheetMenu" class="sheet menu"><div class="grab"></div><div id="menuBody"></div></div>
+<div id="sheetSettings" class="sheet" style="max-height:58vh"><div class="grab"></div><h3>Ajustes do teleprompter</h3><div id="setBody"></div></div>
+<div id="sheetSections" class="sheet"><div class="grab"></div><h3>Ir para seção</h3><div id="secList"></div></div>
+<div id="toast" class="toast"></div>
+
+<script>
+'use strict';
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem('tp.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('tp.' + k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem('tp.' + k); } catch {} }
+};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0'); };
+let toastT;
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id)); current = id; }
+let current = '';
+
+/* ---------- crypto ---------- */
+const ITER = 310000;
+const te = new TextEncoder(), td = new TextDecoder();
+function toB64(bytes) { bytes = new Uint8Array(bytes); let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); }
+function fromB64(s) { const b = atob(s); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+async function deriveKey(pw, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: fromB64(salt), iterations: iter || ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+const importKey = raw => crypto.subtle.importKey('raw', fromB64(raw), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+const exportKey = async k => toB64(await crypto.subtle.exportKey('raw', k));
+async function encryptStr(key, str) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(str));
+  return JSON.stringify({ v: 1, iv: toB64(iv), ct: toB64(ct) });
+}
+async function decryptStr(key, blob) {
+  const o = JSON.parse(blob);
+  return td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(o.iv) }, key, fromB64(o.ct)));
+}
+
+/* ---------- storage backends ---------- */
+class GitHubStore {
+  constructor(owner, repo, token) { this.base = `https://api.github.com/repos/${owner}/${repo}`; this.token = token; }
+  async req(method, path, body) {
+    const r = await fetch(this.base + path, {
+      method, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + this.token, Accept: 'application/vnd.github+json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (!r.ok) { const e = new Error('GitHub ' + r.status); e.status = r.status; try { e.detail = (await r.json()).message; } catch {} throw e; }
+    return r.status === 204 ? null : r.json();
+  }
+  async list() {
+    try {
+      const arr = await this.req('GET', '/contents/scripts?ref=data&t=' + Date.now());
+      return arr.filter(f => f.name.endsWith('.json')).map(f => ({ id: f.name.slice(0, -5), sha: f.sha }));
+    } catch (e) { if (e.status === 404) return []; throw e; }
+  }
+  async get(sha) { const o = await this.req('GET', '/git/blobs/' + sha); return atob(o.content.replace(/\s/g, '')); }
+  async put(id, content, sha) {
+    const o = await this.req('PUT', `/contents/scripts/${id}.json`, { message: 'roteiro ' + id, content: btoa(content), branch: 'data', ...(sha ? { sha } : {}) });
+    return o.content.sha;
+  }
+  async del(id, sha) { await this.req('DELETE', `/contents/scripts/${id}.json`, { message: 'remove ' + id, sha, branch: 'data' }); }
+}
+class MemoryStore { // demo mode (?demo)
+  constructor() { this.f = {}; }
+  async list() { return Object.entries(this.f).map(([id, v]) => ({ id, sha: v.sha })); }
+  async get(sha) { return Object.values(this.f).find(v => v.sha === sha).c; }
+  async put(id, c, sha) { const cur = this.f[id]; if ((cur && cur.sha) !== (sha || undefined)) { const e = new Error('409'); e.status = 409; throw e; } const n = newId(); this.f[id] = { sha: n, c }; return n; }
+  async del(id) { delete this.f[id]; }
+}
+
+/* ---------- session ---------- */
+let CONFIG = null, PWKEY = null, DEK = null, store = null, TOKEN = null;
+const DEMO = new URLSearchParams(location.search).has('demo');
+
+function guessRepo() {
+  const h = location.hostname, seg = location.pathname.split('/').filter(Boolean)[0];
+  if (h.endsWith('.github.io')) return h.split('.')[0] + '/' + (seg && !seg.includes('.') ? seg : h);
+  return '';
+}
+async function fetchConfig() {
+  try {
+    const r = await fetch('config.json?t=' + Date.now(), { cache: 'no-store' });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('http ' + r.status);
+    const c = await r.json(); LS.set('config', c); return c;
+  } catch (e) {
+    const c = LS.get('config', null);
+    if (c) return c;
+    throw e;
+  }
+}
+async function openBox(key) {
+  const box = JSON.parse(await decryptStr(key, CONFIG.box));
+  PWKEY = key; TOKEN = box.token; DEK = await importKey(box.dek);
+  store = new GitHubStore(CONFIG.owner, CONFIG.repo, TOKEN);
+}
+async function boot() {
+  if (DEMO) { store = new MemoryStore(); DEK = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']); LS_PREFIX_DEMO(); return enterApp(); }
+  try { CONFIG = await fetchConfig(); }
+  catch { show('login'); $('#loginErr').textContent = 'Sem conexão. Conecte-se para o primeiro acesso.'; return; }
+  if (!CONFIG) return showSetup();
+  const saved = LS.get('key', null);
+  if (saved) {
+    try { await openBox(await importKey(saved)); return enterApp(); } catch { LS.del('key'); }
+  }
+  show('login'); setTimeout(() => $('#loginPw').focus(), 50);
+}
+function LS_PREFIX_DEMO() { // isolate demo data from real cache
+  const g = LS.get, s = LS.set; LS.get = (k, d) => g('demo.' + k, d); LS.set = (k, v) => s('demo.' + k, v);
+  if (!LS.get('seeded', false)) { LS.set('cache', {}); LS.set('dels', []); }
+}
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault();
+  const pw = $('#loginPw').value; $('#loginErr').textContent = ''; $('#loginBtn').disabled = true; $('#loginBtn').textContent = 'Verificando…';
+  try {
+    const key = await deriveKey(pw, CONFIG.salt, CONFIG.iter);
+    await openBox(key);
+    if ($('#loginRemember').checked) LS.set('key', await exportKey(key));
+    $('#loginPw').value = '';
+    enterApp();
+  } catch { $('#loginErr').textContent = 'Senha incorreta.'; }
+  $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Entrar';
+};
+
+function showSetup() {
+  const g = guessRepo(); $('#setupRepo').value = g;
+  $('#setupRepoName').textContent = g ? g.split('/')[1] : 'este repositório';
+  show('setup');
+}
+$('#setupForm').onsubmit = async e => {
+  e.preventDefault();
+  const err = $('#setupErr'), btn = $('#setupBtn'); err.textContent = '';
+  const [owner, repo] = $('#setupRepo').value.trim().split('/');
+  const token = $('#setupToken').value.trim(), pw = $('#setupPw').value;
+  if (!owner || !repo) return err.textContent = 'Informe dono/nome do repositório.';
+  if (pw !== $('#setupPw2').value) return err.textContent = 'As senhas não conferem.';
+  btn.disabled = true; btn.textContent = 'Configurando…';
+  try {
+    const gh = new GitHubStore(owner, repo, token);
+    let info;
+    try { info = await gh.req('GET', ''); } catch (x) { throw new Error(x.status === 401 ? 'Token inválido.' : x.status === 404 ? 'Repositório não encontrado ou token sem acesso a ele.' : 'Erro ao acessar o GitHub (' + x.message + ').'); }
+    const def = info.default_branch || 'main';
+    try { await gh.req('GET', '/git/ref/heads/data'); }
+    catch (x) {
+      if (x.status !== 404) throw x;
+      const ref = await gh.req('GET', '/git/ref/heads/' + def);
+      await gh.req('POST', '/git/refs', { ref: 'refs/heads/data', sha: ref.object.sha });
+    }
+    const salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
+    const key = await deriveKey(pw, salt, ITER);
+    const dekKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    const cfg = { v: 1, owner, repo, salt, iter: ITER, box: await encryptStr(key, JSON.stringify({ token, dek: await exportKey(dekKey) })) };
+    await writeConfig(gh, cfg, def);
+    CONFIG = cfg; LS.set('config', cfg); LS.set('key', await exportKey(key));
+    await openBox(key);
+    toast('Configurado! O site leva ~1 min para publicar a configuração.', 5000);
+    enterApp();
+  } catch (x) {
+    err.textContent = x.message.startsWith('GitHub 403') ? 'O token não tem permissão de escrita (Contents: Read and write).' : x.message;
+  }
+  btn.disabled = false; btn.textContent = 'Salvar configuração';
+};
+async function writeConfig(gh, cfg, branch) {
+  let sha;
+  try { sha = (await gh.req('GET', '/contents/config.json?ref=' + branch)).sha; } catch (x) { if (x.status !== 404) throw x; }
+  await gh.req('PUT', '/contents/config.json', { message: 'configuração', content: btoa(JSON.stringify(cfg, null, 1)), branch, ...(sha ? { sha } : {}) });
+}
+
+/* ---------- sync engine ---------- */
+let entries = {}, dels = [], docs = {};
+let chain = Promise.resolve();
+const serial = fn => (chain = chain.then(fn, fn));
+function persist() { LS.set('cache', entries); LS.set('dels', dels); }
+async function decodeEntry(id) {
+  try { docs[id] = { ...JSON.parse(await decryptStr(DEK, entries[id].blob)), id }; }
+  catch { docs[id] = { id, title: '(não foi possível abrir)', body: '', updated: 0, broken: true }; }
+}
+let syncState = 'sync';
+function setSync(s) {
+  syncState = s;
+  const p = $('#syncPill'); p.className = 'pill ' + s;
+  p.textContent = { ok: 'Sincronizado', sync: 'Sincronizando…', off: 'Offline · salvo no aparelho', err: 'Erro · tocar p/ tentar' }[s];
+  if (current === 'editor') updEdState();
+  if (current === 'list' && s !== 'sync') renderList();
+}
+async function pushNow(id) {
+  const e = entries[id]; if (!e || !e.dirty) return;
+  const rev = e.rev, blob = e.blob;
+  e.sha = await store.put(id, blob, e.sha);
+  if (entries[id] === e && e.rev === rev) e.dirty = false;
+  persist();
+}
+function syncAll() {
+  return serial(async () => {
+    setSync('sync');
+    try {
+      for (const d of dels.slice()) {
+        try { await store.del(d.id, d.sha); } catch (x) { if (![404, 409, 422].includes(x.status)) throw x; }
+        dels = dels.filter(z => z !== d); persist();
+      }
+      const remote = await store.list();
+      const rmap = Object.fromEntries(remote.map(r => [r.id, r.sha]));
+      for (const { id, sha } of remote) {
+        if (dels.some(d => d.id === id)) continue;
+        const e = entries[id];
+        if (e && e.sha === sha) { if (e.dirty) await pushNow(id); continue; }
+        if (e && e.dirty) { // edited here and elsewhere: keep both
+          const cid = newId(), d = { ...docs[id], id: cid, title: (docs[id].title || 'Sem título') + ' (cópia deste aparelho)' };
+          docs[cid] = d;
+          entries[cid] = { sha: null, dirty: true, rev: 1, blob: await encryptStr(DEK, JSON.stringify({ title: d.title, body: d.body, updated: d.updated })) };
+          toast('Um roteiro foi editado em dois aparelhos ao mesmo tempo. As duas versões foram mantidas.', 5000);
+        }
+        entries[id] = { sha, blob: await store.get(sha), dirty: false, rev: 0 };
+        await decodeEntry(id);
+        if (current === 'editor' && edId === id && document.activeElement !== $('#edBody') && document.activeElement !== $('#edTitle')) fillEditor();
+      }
+      for (const id of Object.keys(entries)) {
+        if (rmap[id]) continue;
+        const e = entries[id];
+        if (e.dirty) { e.sha = null; await pushNow(id); }
+        else { delete entries[id]; delete docs[id]; }
+      }
+      persist();
+      setSync('ok');
+    } catch (x) {
+      console.warn(x);
+      if (x.status === 401) { toast('Token do GitHub expirou ou foi revogado. Atualize em ⋯ → Atualizar token.', 6000); }
+      setSync(navigator.onLine === false || x instanceof TypeError ? 'off' : 'err');
+    }
+    if (current === 'list') renderList();
+  });
+}
+const pushTimers = {};
+function schedulePush(id, ms = 2500) {
+  clearTimeout(pushTimers[id]);
+  pushTimers[id] = setTimeout(() => serial(async () => {
+    if (!entries[id] || !entries[id].dirty) return;
+    setSync('sync');
+    try { await pushNow(id); setSync(Object.values(entries).some(e => e.dirty) ? 'sync' : 'ok'); }
+    catch (x) {
+      if (x.status === 409 || x.status === 422) { syncAll(); return; }
+      setSync(navigator.onLine === false || x instanceof TypeError ? 'off' : 'err');
+    }
+  }), ms);
+}
+async function saveDoc(d) {
+  d.updated = Date.now(); docs[d.id] = d;
+  const blob = await encryptStr(DEK, JSON.stringify({ title: d.title, body: d.body, updated: d.updated }));
+  const e = entries[d.id] || { sha: null, rev: 0 };
+  entries[d.id] = { ...e, blob, dirty: true, rev: (e.rev || 0) + 1 };
+  persist(); schedulePush(d.id);
+}
+function deleteDoc(id) {
+  const e = entries[id];
+  if (e && e.sha) dels.push({ id, sha: e.sha });
+  delete entries[id]; delete docs[id]; clearTimeout(pushTimers[id]); persist(); syncAll();
+}
+
+/* ---------- app ---------- */
+async function enterApp() {
+  entries = LS.get('cache', {}); dels = LS.get('dels', []); docs = {};
+  for (const id of Object.keys(entries)) await decodeEntry(id);
+  show('list'); renderList(); syncAll();
+  if (DEMO && !Object.keys(entries).length) { await saveDoc({ id: newId(), title: 'Roteiro de exemplo', body: SAMPLE }); renderList(); }
+}
+const SAMPLE = `# Abertura
+Olá! Este é um roteiro de exemplo para testar o teleprompter.
+[sorria]
+Toque na tela para iniciar ou pausar. Arraste para cima ou para baixo para ajustar a posição.
+
+# Desenvolvimento
+Use os botões **+** e **−** para mudar a velocidade, e **A+** e **A−** para o tamanho da letra.
+[PAUSA]
+Em ajustes você pode espelhar o texto, mudar a posição da linha-guia, ativar a câmera e gravar.
+
+# Fechamento
+Linhas que começam com # viram seções, que aparecem no botão ☰ para pular direto.
+Obrigado e até a próxima!`;
+function renderList() {
+  const q = $('#search').value.trim().toLowerCase();
+  const arr = Object.values(docs).filter(d => !q || (d.title + ' ' + d.body).toLowerCase().includes(q)).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  const box = $('#items');
+  if (!arr.length) { box.innerHTML = `<div class="empty">${q ? 'Nada encontrado.' : 'Nenhum roteiro ainda.<br>Toque em <b>+ Novo</b> ou <b>Importar</b>.'}</div>`; return; }
+  box.innerHTML = arr.map(d => {
+    const w = wordCount(d.body);
+    return `<div class="item" data-id="${d.id}">
+      <div class="main" data-act="edit"><div class="t">${entries[d.id] && entries[d.id].dirty ? '<span class="dot" title="Ainda não enviado"></span>' : ''}${esc(d.title || 'Sem título')}</div>
+      <div class="p">${esc((d.body || '').replace(/\s+/g, ' ').slice(0, 120)) || '&nbsp;'}</div>
+      <div class="m">${w} palavras · ~${fmtTime(w / 150 * 60)} · ${d.updated ? new Date(d.updated).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div></div>
+      <button class="play" data-act="play" aria-label="Ler">▶</button></div>`;
+  }).join('');
+}
+const wordCount = s => (String(s || '').replace(/\[[^\]]*\]/g, '').match(/\S+/g) || []).length;
+$('#items').onclick = e => {
+  const act = e.target.closest('[data-act]'), it = e.target.closest('.item'); if (!act || !it) return;
+  const id = it.dataset.id; if (docs[id].broken) return toast('Este roteiro não pôde ser aberto com a senha atual.');
+  act.dataset.act === 'play' ? openPrompter(id) : openEditor(id);
+};
+$('#search').oninput = renderList;
+$('#syncPill').onclick = () => syncAll();
+$('#btnNew').onclick = () => { const id = newId(); docs[id] = { id, title: '', body: '', updated: Date.now() }; openEditor(id, true); };
+$('#btnImport').onclick = () => $('#fileInput').click();
+$('#fileInput').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  let n = 0;
+  for (const f of files) {
+    try {
+      const body = await readFileText(f);
+      await saveDoc({ id: newId(), title: f.name.replace(/\.[^.]+$/, ''), body }); n++;
+    } catch (x) { toast('Não foi possível ler ' + f.name); }
+  }
+  if (n) { toast(n + (n > 1 ? ' roteiros importados' : ' roteiro importado')); renderList(); }
+};
+async function readFileText(f) {
+  const name = f.name.toLowerCase();
+  if (name.endsWith('.docx')) {
+    if (!window.mammoth) await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+    const r = await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+    return r.value.replace(/\n{3,}/g, '\n\n').trim();
+  }
+  let t = await f.text();
+  if (name.endsWith('.rtf')) t = rtfToText(t);
+  return t.replace(/\r\n?/g, '\n').trim();
+}
+function rtfToText(r) {
+  return r.replace(/\\par[d]?/g, '\n').replace(/\\'([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\u(-?\d+)\??/g, (_, n) => String.fromCharCode(n < 0 ? +n + 65536 : +n))
+    .replace(/\{\\\*[^{}]*\}/g, '').replace(/\\[a-z]+-?\d* ?/gi, '').replace(/[{}]/g, '');
+}
+
+/* ---------- sheets ---------- */
+function openSheet(id) { closeSheets(); $('#backdrop').classList.add('on'); $(id).classList.add('on'); }
+function closeSheets() { document.querySelectorAll('.sheet').forEach(s => s.classList.remove('on')); $('#backdrop').classList.remove('on'); }
+$('#backdrop').onclick = closeSheets;
+function menu(items) {
+  $('#menuBody').innerHTML = items.map((it, i) => `<button data-i="${i}" class="${it.danger ? 'danger' : ''}">${it.label}</button>`).join('') + '<button data-i="-1">Cancelar</button>';
+  $('#menuBody').onclick = e => { const b = e.target.closest('button'); if (!b) return; closeSheets(); const it = items[+b.dataset.i]; if (it) it.fn(); };
+  openSheet('#sheetMenu');
+}
+$('#btnMenu').onclick = () => menu([
+  { label: '↻ Sincronizar agora', fn: syncAll },
+  ...(DEMO ? [] : [
+    { label: '🔑 Trocar senha', fn: changePassword },
+    { label: '🔄 Atualizar token do GitHub', fn: changeToken },
+    { label: '⎋ Sair deste aparelho', danger: true, fn: logout }
+  ])
+]);
+function logout() {
+  if (!confirm('Sair deste aparelho? Será preciso digitar a senha de novo.')) return;
+  LS.del('key'); LS.del('cache'); LS.del('dels'); location.reload();
+}
+async function changePassword() {
+  const pw = prompt('Nova senha:'); if (!pw) return;
+  if (pw !== prompt('Repita a nova senha:')) return toast('As senhas não conferem.');
+  await rewriteBox({ pw });
+}
+async function changeToken() {
+  const t = prompt('Cole o novo token do GitHub:'); if (!t) return;
+  await rewriteBox({ token: t.trim() });
+}
+async function rewriteBox({ pw, token }) {
+  try {
+    toast('Salvando…');
+    const salt = pw ? toB64(crypto.getRandomValues(new Uint8Array(16))) : CONFIG.salt;
+    const key = pw ? await deriveKey(pw, salt, ITER) : PWKEY;
+    const newToken = token || TOKEN;
+    const gh = new GitHubStore(CONFIG.owner, CONFIG.repo, newToken);
+    const info = await gh.req('GET', '');
+    const cfg = { ...CONFIG, salt, iter: pw ? ITER : CONFIG.iter, box: await encryptStr(key, JSON.stringify({ token: newToken, dek: await exportKey(DEK) })) };
+    await writeConfig(gh, cfg, info.default_branch || 'main');
+    CONFIG = cfg; LS.set('config', cfg);
+    if (LS.get('key', null)) LS.set('key', await exportKey(key));
+    await openBox(key);
+    toast(pw ? 'Senha alterada. Os outros aparelhos vão pedir a senha nova.' : 'Token atualizado.', 4500);
+  } catch (x) { toast('Falhou: ' + (x.status === 401 ? 'token inválido' : x.message), 4500); }
+}
+
+/* ---------- editor ---------- */
+let edId = null, edSaveT = null, edIsNew = false;
+function openEditor(id, isNew) { edId = id; edIsNew = !!isNew; fillEditor(); show('editor'); if (isNew) setTimeout(() => $('#edTitle').focus(), 60); }
+function fillEditor() { const d = docs[edId]; $('#edTitle').value = d.title || ''; $('#edBody').value = d.body || ''; updStats(); updEdState(); }
+function updStats() { const w = wordCount($('#edBody').value); $('#edStats').textContent = `${w} palavras · ~${fmtTime(w / 150 * 60)} de leitura`; }
+function updEdState() {
+  const e = entries[edId];
+  $('#edState').textContent = !e ? '' : e.dirty ? (syncState === 'off' ? 'Salvo no aparelho (offline)' : syncState === 'err' ? 'Salvo no aparelho · erro ao enviar' : 'Salvando…') : 'Salvo ✓';
+}
+function edChanged() {
+  updStats(); clearTimeout(edSaveT);
+  edSaveT = setTimeout(flushEditor, 500);
+}
+async function flushEditor() {
+  clearTimeout(edSaveT);
+  if (!edId || !docs[edId]) return;
+  const d = docs[edId], title = $('#edTitle').value, body = $('#edBody').value;
+  if (d.title === title && d.body === body) return;
+  await saveDoc({ ...d, title, body }); updEdState();
+}
+$('#edTitle').oninput = edChanged; $('#edBody').oninput = edChanged;
+$('#edBack').onclick = async () => {
+  await flushEditor();
+  const d = docs[edId];
+  if (d && !d.title.trim() && !d.body.trim()) { if (entries[edId]) deleteDoc(edId); else delete docs[edId]; }
+  else if (entries[edId] && entries[edId].dirty) schedulePush(edId, 0);
+  edId = null; show('list'); renderList();
+};
+$('#edPlay').onclick = async () => { await flushEditor(); if (!docs[edId].body.trim()) return toast('O roteiro está vazio.'); openPrompter(edId); };
+$('#edMore').onclick = () => menu([
+  { label: '⬇︎ Exportar .txt', fn: () => { const d = docs[edId]; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([$('#edBody').value], { type: 'text/plain' })); a.download = (d.title || 'roteiro') + '.txt'; a.click(); } },
+  { label: '⧉ Duplicar', fn: async () => { await flushEditor(); const d = docs[edId]; const id = newId(); await saveDoc({ id, title: d.title + ' (cópia)', body: d.body }); openEditor(id); toast('Cópia criada'); } },
+  { label: '🗑 Excluir roteiro', danger: true, fn: () => { if (!confirm('Excluir este roteiro em todos os aparelhos?')) return; deleteDoc(edId); edId = null; show('list'); renderList(); } }
+]);
+
+/* ---------- prompter ---------- */
+const DEF = { speed: 5, fontSize: 44, lineHeight: 1.35, margin: 6, guide: 0.3, showGuide: true, countdown: 3, align: 'left', theme: 'dark', mirrorH: false, mirrorV: false, upper: false, bold: true, camera: 'off', overlay: 0.45, tapPlay: true };
+let S = { ...DEF, ...LS.get('settings', {}) };
+const saveS = () => LS.set('settings', S);
+const THEMES = { dark: ['#000', '#fff'], light: ['#fff', '#000'], yellow: ['#000', '#ffd60a'], green: ['#000', '#5cff7a'] };
+const P = { id: null, y: 0, max: 0, playing: false, last: 0, elapsed: 0, raf: 0, drag: null, hideT: 0, cd: null };
+const stage = $('#stage'), ptext = $('#ptext'), pEl = $('#prompter');
+const pxPerSec = () => S.speed * S.fontSize / 5;
+
+function renderScript(body) {
+  const out = []; let si = 0;
+  for (const line of body.split('\n')) {
+    const m = line.match(/^\s*#+\s*(.*)$/);
+    if (m) { out.push(`<h2 data-sec="${si++}">${esc(m[1])}</h2>`); continue; }
+    if (!line.trim()) { out.push('<p class="gap"></p>'); continue; }
+    out.push('<p>' + esc(line).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]/g, '<span class="cue">[$1]</span>') + '</p>');
+  }
+  out.push('<p class="end">— fim —</p>');
+  return out.join('');
+}
+function applyStyle() {
+  const [bg, fg] = THEMES[S.theme] || THEMES.dark;
+  const camOn = S.camera !== 'off' && camStream;
+  pEl.classList.toggle('camera', !!camOn);
+  stage.style.background = camOn ? `rgba(0,0,0,${S.overlay})` : bg;
+  pEl.style.background = bg;
+  stage.style.color = camOn ? '#fff' : fg;
+  stage.style.transform = `scale(${S.mirrorH ? -1 : 1},${S.mirrorV ? -1 : 1})`;
+  Object.assign(ptext.style, {
+    fontSize: S.fontSize + 'px', lineHeight: S.lineHeight, paddingLeft: S.margin + '%', paddingRight: S.margin + '%',
+    textAlign: S.align, textTransform: S.upper ? 'uppercase' : 'none', fontWeight: S.bold ? 650 : 400,
+    textShadow: camOn ? '0 2px 6px rgba(0,0,0,.9)' : 'none'
+  });
+  const g = $('#guide'); g.style.display = S.showGuide ? '' : 'none';
+  g.style.top = (S.guide * 100) + '%'; g.style.height = (S.fontSize * S.lineHeight) + 'px';
+  measure();
+  $('#pspeed').textContent = S.speed.toFixed(1) + '×';
+}
+function measure() {
+  const ratio = P.max ? P.y / P.max : 0, h = stage.clientHeight;
+  ptext.style.paddingTop = (S.guide * h) + 'px';
+  ptext.style.paddingBottom = ((1 - S.guide) * h) + 'px';
+  P.max = Math.max(0, ptext.offsetHeight - h);
+  P.y = ratio * P.max; draw();
+}
+function draw() {
+  ptext.style.transform = `translate3d(0,${-P.y}px,0)`;
+  const rem = (P.max - P.y) / pxPerSec();
+  $('#ptime').textContent = `${fmtTime(P.elapsed)} · resta ${fmtTime(rem)}`;
+  $('#pprog i').style.width = (P.max ? P.y / P.max * 100 : 0) + '%';
+}
+function loop(t) {
+  if (!P.playing) return;
+  const dt = Math.min(0.25, (t - P.last) / 1000); P.last = t;
+  if (!P.drag) {
+    P.y += pxPerSec() * dt; P.elapsed += dt;
+    if (P.y >= P.max) { P.y = P.max; draw(); pause(); return; }
+  }
+  draw(); P.raf = requestAnimationFrame(loop);
+}
+function play(skipCountdown) {
+  if (P.playing || P.cd) return;
+  if (P.y >= P.max - 1) P.y = 0;
+  const go = () => { P.playing = true; P.last = performance.now(); $('#pPlay').textContent = '⏸'; P.raf = requestAnimationFrame(loop); autoHide(); };
+  if (S.countdown > 0 && !skipCountdown) {
+    let n = S.countdown; const el = $('#countdown'); el.textContent = n; el.classList.add('on');
+    P.cd = setInterval(() => { n--; if (n <= 0) { cancelCountdown(); go(); } else el.textContent = n; }, 1000);
+    $('#pPlay').textContent = '⏸';
+  } else go();
+}
+function cancelCountdown() { clearInterval(P.cd); P.cd = null; $('#countdown').classList.remove('on'); }
+function pause() {
+  if (P.cd) { cancelCountdown(); }
+  P.playing = false; cancelAnimationFrame(P.raf); $('#pPlay').textContent = '▶'; showCtl();
+}
+const toggle = () => (P.playing || P.cd) ? pause() : play();
+function showCtl() { pEl.classList.remove('hidectl'); clearTimeout(P.hideT); if (P.playing) autoHide(); }
+function autoHide() { clearTimeout(P.hideT); P.hideT = setTimeout(() => { if (P.playing && !document.querySelector('.sheet.on')) pEl.classList.add('hidectl'); }, 2200); }
+function setSpeed(v) { S.speed = Math.round(Math.min(30, Math.max(0.5, v)) * 10) / 10; saveS(); $('#pspeed').textContent = S.speed.toFixed(1) + '×'; syncSetUI(); draw(); }
+function setFont(v) { S.fontSize = Math.min(140, Math.max(16, v)); saveS(); applyStyle(); syncSetUI(); }
+function jump(dy) { P.y = Math.min(P.max, Math.max(0, P.y + dy)); draw(); }
+
+function openPrompter(id) {
+  P.id = id; P.y = 0; P.elapsed = 0; P.max = 0;
+  const d = docs[id]; $('#ptitle').textContent = d.title || 'Sem título';
+  ptext.innerHTML = renderScript(d.body || '');
+  show('prompter'); applyStyle(); pause(); keepAwake(true);
+  $('#pFull').hidden = !(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+  if (S.camera !== 'off') startCamera();
+}
+async function closePrompter() {
+  if (recorder && recorder.state === 'recording') { if (!confirm('Parar a gravação e sair?')) return; stopRec(); }
+  pause(); stopCamera(); keepAwake(false); closeSheets();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (edId === P.id) show('editor'); else { show('list'); renderList(); }
+  P.id = null;
+}
+$('#pClose').onclick = closePrompter;
+$('#pPlay').onclick = toggle;
+$('#pRestart').onclick = () => { pause(); P.y = 0; P.elapsed = 0; draw(); };
+$('#pSlower').onclick = () => setSpeed(S.speed - (S.speed > 3 ? 0.5 : 0.2));
+$('#pFaster').onclick = () => setSpeed(S.speed + (S.speed >= 3 ? 0.5 : 0.2));
+$('#pFontDown').onclick = () => setFont(S.fontSize - 4);
+$('#pFontUp').onclick = () => setFont(S.fontSize + 4);
+$('#pSettings').onclick = () => { buildSettings(); openSheet('#sheetSettings'); };
+$('#pFull').onclick = () => { const el = document.documentElement; if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document); else (el.requestFullscreen || el.webkitRequestFullscreen).call(el); };
+$('#pSections').onclick = () => {
+  const hs = [...ptext.querySelectorAll('h2')];
+  $('#secList').innerHTML = hs.length ? '<button data-s="top">⏮ Início</button>' + hs.map((h, i) => `<button data-s="${i}">${esc(h.textContent)}</button>`).join('') : '<p class="muted">Nenhuma seção. Comece uma linha com # para criar seções.</p>';
+  openSheet('#sheetSections');
+};
+$('#secList').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const h = b.dataset.s === 'top' ? null : ptext.querySelectorAll('h2')[+b.dataset.s];
+  P.y = h ? Math.min(P.max, Math.max(0, h.offsetTop - S.guide * stage.clientHeight)) : 0;
+  draw(); closeSheets();
+};
+// touch / drag / tap
+stage.addEventListener('pointerdown', e => {
+  if (P.drag) return;
+  P.drag = { id: e.pointerId, y0: e.clientY, p0: P.y, moved: false, t: performance.now() };
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', e => {
+  const d = P.drag; if (!d || d.id !== e.pointerId) return;
+  const dy = e.clientY - d.y0; if (Math.abs(dy) > 8) d.moved = true;
+  if (d.moved) { P.y = Math.min(P.max, Math.max(0, d.p0 - dy * (S.mirrorV ? -1 : 1))); draw(); }
+});
+const endDrag = e => {
+  const d = P.drag; if (!d || d.id !== e.pointerId) return; P.drag = null;
+  if (!d.moved && e.type === 'pointerup') {
+    if (P.playing && pEl.classList.contains('hidectl') && !S.tapPlay) return showCtl();
+    if (S.tapPlay) toggle(); else showCtl();
+  }
+  if (P.playing) P.last = performance.now();
+};
+stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercancel', endDrag);
+stage.addEventListener('wheel', e => { e.preventDefault(); jump(e.deltaY * (S.mirrorV ? -1 : 1)); }, { passive: false });
+pEl.addEventListener('pointerdown', e => { if (e.target.closest('.pbar')) showCtl(); });
+// keyboard & bluetooth remotes / pedals
+document.addEventListener('keydown', e => {
+  if (current !== 'prompter' || document.querySelector('.sheet.on')) return;
+  const line = S.fontSize * S.lineHeight, page = stage.clientHeight * 0.6;
+  const k = e.key; let hit = true;
+  if (k === ' ' || k === 'Enter' || k === 'MediaPlayPause' || k === 'k') toggle();
+  else if (k === 'ArrowDown' || k === 'ArrowRight' && e.shiftKey) jump(line);
+  else if (k === 'ArrowUp' || k === 'ArrowLeft' && e.shiftKey) jump(-line);
+  else if (k === 'PageDown' || k === 'ArrowRight') jump(page);
+  else if (k === 'PageUp' || k === 'ArrowLeft') jump(-page);
+  else if (k === '+' || k === '=' || k === ']') $('#pFaster').click();
+  else if (k === '-' || k === '_' || k === '[') $('#pSlower').click();
+  else if (k === 'Home' || k === '0') $('#pRestart').click();
+  else if (k === 'Escape') closePrompter();
+  else hit = false;
+  if (hit) { e.preventDefault(); showCtl(); }
+});
+window.addEventListener('resize', () => { if (current === 'prompter') { const g = $('#guide'); measure(); } });
+
+// settings sheet
+const FIELDS = [
+  ['speed', 'Velocidade', 'range', 0.5, 30, 0.5, v => v.toFixed(1) + '×'],
+  ['fontSize', 'Tamanho da letra', 'range', 16, 140, 2, v => v + 'px'],
+  ['lineHeight', 'Espaço entre linhas', 'range', 1, 2.2, 0.05, v => v.toFixed(2)],
+  ['margin', 'Margens laterais', 'range', 0, 30, 1, v => v + '%'],
+  ['guide', 'Posição da linha de leitura', 'range', 0.05, 0.7, 0.01, v => Math.round(v * 100) + '%'],
+  ['showGuide', 'Mostrar linha de leitura', 'check'],
+  ['countdown', 'Contagem antes de iniciar', 'select', [[0, 'Nenhuma'], [3, '3 s'], [5, '5 s'], [10, '10 s']]],
+  ['tapPlay', 'Tocar na tela inicia/pausa', 'check'],
+  ['align', 'Alinhamento', 'select', [['left', 'Esquerda'], ['center', 'Centro'], ['justify', 'Justificado']]],
+  ['theme', 'Cores', 'select', [['dark', 'Branco no preto'], ['light', 'Preto no branco'], ['yellow', 'Amarelo no preto'], ['green', 'Verde no preto']]],
+  ['bold', 'Letra em negrito', 'check'],
+  ['upper', 'TUDO MAIÚSCULO', 'check'],
+  ['mirrorH', 'Espelhar (para vidro de teleprompter)', 'check'],
+  ['mirrorV', 'Inverter de cabeça para baixo', 'check'],
+  ['camera', 'Câmera de fundo / gravar', 'select', [['off', 'Desligada'], ['user', 'Frontal'], ['environment', 'Traseira']]],
+  ['overlay', 'Escurecer vídeo atrás do texto', 'range', 0, 0.9, 0.05, v => Math.round(v * 100) + '%']
+];
+function buildSettings() {
+  $('#setBody').innerHTML = FIELDS.map(([k, label, type, a, b, step]) => {
+    if (type === 'range') return `<div class="set"><label for="s_${k}">${label}</label><span class="v" id="v_${k}"></span><input id="s_${k}" data-k="${k}" type="range" min="${a}" max="${b}" step="${step}"></div>`;
+    if (type === 'check') return `<div class="set"><label for="s_${k}">${label}</label><input id="s_${k}" data-k="${k}" type="checkbox"></div>`;
+    return `<div class="set"><label for="s_${k}">${label}</label><select id="s_${k}" data-k="${k}">${a.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>`;
+  }).join('') + '<div style="margin-top:14px" class="row"><button id="sReset" style="flex:1">Restaurar padrão</button><button class="primary" id="sDone" style="flex:1">Pronto</button></div>' +
+  '<p class="muted" style="margin-top:14px">Controle remoto/teclado Bluetooth: espaço = iniciar/pausar · ←/→ ou PageUp/PageDown = voltar/avançar · ↑/↓ = linha · +/− = velocidade.</p>';
+  syncSetUI();
+  $('#sDone').onclick = closeSheets;
+  $('#sReset').onclick = () => { const cam = S.camera; S = { ...DEF, camera: cam }; saveS(); applyStyle(); syncSetUI(); };
+}
+function syncSetUI() {
+  for (const [k, , type, , , , fmt] of FIELDS) {
+    const el = $('#s_' + k); if (!el) continue;
+    if (type === 'check') el.checked = !!S[k]; else el.value = S[k];
+    if (fmt) $('#v_' + k).textContent = fmt(+S[k]);
+  }
+}
+$('#setBody').addEventListener('input', e => {
+  const k = e.target.dataset.k; if (!k) return;
+  const f = FIELDS.find(x => x[0] === k);
+  S[k] = f[2] === 'check' ? e.target.checked : f[2] === 'range' ? +e.target.value : (k === 'countdown' ? +e.target.value : e.target.value);
+  saveS(); syncSetUI();
+  if (k === 'camera') { S.camera === 'off' ? stopCamera() : startCamera(); }
+  applyStyle();
+});
+
+/* ---------- camera & recording ---------- */
+let camStream = null, recorder = null, recChunks = [];
+async function startCamera() {
+  stopCamera(true);
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: S.camera, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: true });
+    const v = $('#cam'); v.srcObject = camStream; v.classList.toggle('selfie', S.camera === 'user'); v.play().catch(() => {});
+  } catch (x) { camStream = null; toast('Não foi possível acessar a câmera/microfone.'); S.camera = 'off'; saveS(); syncSetUI(); }
+  applyStyle();
+}
+function stopCamera(keepSetting) {
+  if (recorder && recorder.state === 'recording') stopRec();
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null; $('#cam').srcObject = null;
+  if (current === 'prompter') applyStyle();
+}
+function startRec() {
+  if (!camStream) return;
+  const types = ['video/mp4;codecs=avc1,mp4a', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { recorder = new MediaRecorder(camStream, mt ? { mimeType: mt, videoBitsPerSecond: 8e6 } : {}); }
+  catch { return toast('Gravação não suportada neste navegador.'); }
+  recChunks = [];
+  recorder.ondataavailable = e => e.data.size && recChunks.push(e.data);
+  recorder.onstop = () => {
+    pEl.classList.remove('recording');
+    const type = recorder.mimeType || mt || 'video/mp4';
+    const ext = type.includes('webm') ? 'webm' : 'mp4';
+    const file = new File(recChunks, `gravacao-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, { type });
+    const url = URL.createObjectURL(file);
+    menu([
+      ...(navigator.canShare && navigator.canShare({ files: [file] }) ? [{ label: '📤 Salvar / compartilhar vídeo', fn: () => navigator.share({ files: [file] }).catch(() => {}) }] : []),
+      { label: '⬇︎ Baixar vídeo', fn: () => { const a = document.createElement('a'); a.href = url; a.download = file.name; a.click(); } },
+      { label: '🗑 Descartar', danger: true, fn: () => URL.revokeObjectURL(url) }
+    ]);
+    $('#menuBody').insertAdjacentHTML('afterbegin', `<h3>Gravação pronta (${(file.size / 1048576).toFixed(1)} MB)</h3>`);
+  };
+  recorder.start(1000); pEl.classList.add('recording');
+  P.y = P.y >= P.max - 1 ? 0 : P.y; play();
+}
+function stopRec() { pause(); if (recorder && recorder.state !== 'inactive') recorder.stop(); }
+$('#btnRec').onclick = () => (recorder && recorder.state === 'recording') ? stopRec() : startRec();
+
+/* ---------- wake lock ---------- */
+let wakeLock = null, wantAwake = false;
+async function keepAwake(on) {
+  wantAwake = on;
+  try {
+    if (on && 'wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { if (wantAwake) keepAwake(true); if (store && current !== 'prompter') syncAll(); }
+  else if (P.playing) pause();
+});
+window.addEventListener('online', () => store && syncAll());
+window.addEventListener('offline', () => store && setSync('off'));
+window.addEventListener('pagehide', () => { if (current === 'editor') flushEditor(); });
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+boot();
+</script>
+</body>
+</html>
