@@ -894,7 +894,7 @@ $('#setBody').addEventListener('input', e => {
 
 /* ---------- voice follow ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const V = { rec: null, on: false, cur: 0, target: null, marked: 0 };
+const V = { rec: null, on: false, cur: 0, target: null, marked: 0, miss: 0, lastEvt: 0, wd: 0, rt: 0 };
 function lev(a, b, max) {
   if (Math.abs(a.length - b.length) > max) return max + 1;
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -925,51 +925,90 @@ function voiceSyncFromPosition() { // word currently at the reading line
   for (const el of spans) { if (el.offsetTop + el.offsetHeight > lineY) { i = +el.dataset.i; break; } i = +el.dataset.i + 1; }
   V.cur = Math.min(i, WORDS.length); markSaid();
 }
-function onSpoken(txt) {
-  const sp = txt.split(/\s+/).map(norm).filter(Boolean).slice(-7);
-  if (!sp.length || !WORDS.length) return;
-  const last = sp[sp.length - 1], lo = Math.max(0, V.cur - 6), hi = Math.min(WORDS.length - 1, V.cur + 40);
+const wt = x => x.length <= 2 ? 0.5 : 1;
+function bestMatch(sp, lo, hi, wide) {
+  const last = sp[sp.length - 1];
   let best = -1, bestScore = -1;
   for (let j = lo; j <= hi; j++) {
     if (!similar(last, WORDS[j])) continue;
-    const wt = x => x.length <= 2 ? 0.5 : 1;
     let s = wt(last), k = j - 1;
-    for (let a = sp.length - 2; a >= 0 && k >= 0 && k > j - 14; a--) {
+    for (let a = sp.length - 2; a >= 0 && k >= 0 && k > j - 16; a--) {
       for (let d = 0; d < 3 && k - d >= 0; d++) if (similar(sp[a], WORDS[k - d])) { s += wt(sp[a]); k = k - d - 1; break; }
     }
     const dist = j - V.cur;
-    if (s < 2 && (dist < -1 || dist > 4)) continue; // lone word: only accept right next to where we are
-    if (s < 3 && dist > 8) continue;
-    const score = s - Math.abs(dist) * 0.04;
+    if (wide) { if (s < 4) continue; }
+    else {
+      if (s < 2 && (dist < -1 || dist > 4)) continue; // lone word: only right next to where we are
+      if (s < 3 && dist > 10) continue;
+    }
+    const score = s - Math.abs(dist) * (wide ? 0.005 : 0.04);
     if (score > bestScore) { bestScore = score; best = j; }
   }
-  if (best < 0) return;
+  return best;
+}
+function onSpoken(txt) {
+  const all = txt.split(/\s+/).map(norm).filter(Boolean);
+  const sp = all.slice(-8);
+  if (!sp.length || !WORDS.length) return;
+  const lo = Math.max(0, V.cur - 8), hi = Math.min(WORDS.length - 1, V.cur + 45);
+  // the last recognized word is often still unstable: also try anchoring on the one before it
+  let best = bestMatch(sp, lo, hi, false);
+  if (best < 0 && sp.length > 2) best = bestMatch(sp.slice(0, -1), lo, hi, false);
+  if (best < 0) {
+    V.miss++;
+    // lost for a while (or the reader jumped far): search the whole script, but only accept strong matches
+    if (V.miss >= 3 && sp.length >= 5) best = bestMatch(sp, 0, WORDS.length - 1, true);
+    if (best < 0) return;
+  }
+  V.miss = 0;
+  if (best + 1 === V.cur) return;
   V.cur = best + 1; markSaid();
   const el = wordSpan(best + 1) || wordSpan(best);
   if (el) V.target = Math.min(P.max, Math.max(0, el.offsetTop - S.guide * stage.clientHeight));
 }
-function startVoice() {
-  if (!SR) { toast('Este navegador não reconhece voz.'); return false; }
-  stopVoice();
+/* Safari's recognizer silently freezes in long sessions and gets slower as one utterance grows,
+   so each session is kept short and a watchdog restarts it whenever it goes quiet. */
+function spawnRec() {
+  if (!V.on) return;
   const r = new SR();
   r.lang = 'pt-BR'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
   r.onresult = e => {
-    let txt = '';
+    if (V.rec !== r) return;
+    V.lastEvt = performance.now();
+    let txt = '', n = 0;
     for (let i = Math.max(0, e.results.length - 2); i < e.results.length; i++) txt += ' ' + e.results[i][0].transcript;
+    for (let i = 0; i < e.results.length; i++) n += (e.results[i][0].transcript.match(/\S+/g) || []).length;
     onSpoken(txt);
+    if (n > 28 && !r._stopping) { r._stopping = true; try { r.stop(); } catch {} } // keep sessions short = fast
   };
   r.onerror = e => {
+    if (V.rec !== r) return;
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toast('Permita o uso do microfone para o modo voz.', 4500); pause(); }
   };
-  r.onstart = () => pEl.classList.add('listening');
-  r.onend = () => { pEl.classList.remove('listening'); if (V.on && V.rec === r) setTimeout(() => { if (V.on && V.rec === r) try { r.start(); } catch {} }, 120); };
-  V.rec = r; V.on = true; V.target = null;
-  try { r.start(); } catch { toast('Não foi possível iniciar o microfone.'); V.on = false; return false; }
+  r.onstart = r.onaudiostart = r.onspeechstart = () => { if (V.rec === r) { V.lastEvt = performance.now(); pEl.classList.add('listening'); } };
+  r.onend = () => { if (V.rec !== r) return; pEl.classList.remove('listening'); restartRec(60); };
+  V.rec = r; V.lastEvt = performance.now();
+  try { r.start(); } catch { restartRec(400); }
+}
+function restartRec(ms) {
+  const old = V.rec; V.rec = null;
+  if (old) { old.onend = null; try { old.abort(); } catch {} }
+  clearTimeout(V.rt); V.rt = setTimeout(spawnRec, ms);
+}
+function startVoice() {
+  if (!SR) { toast('Este navegador não reconhece voz.'); return false; }
+  stopVoice();
+  V.on = true; V.target = null; V.miss = 0;
+  spawnRec();
+  if (!V.rec) { V.on = false; toast('Não foi possível iniciar o microfone.'); return false; }
+  clearInterval(V.wd);
+  V.wd = setInterval(() => { if (V.on && V.rec && performance.now() - V.lastEvt > 4500) restartRec(0); }, 1000);
   return true;
 }
 function stopVoice() {
-  V.on = false; const r = V.rec; V.rec = null; pEl.classList.remove('listening');
-  if (r) try { r.abort(); } catch {}
+  V.on = false; clearInterval(V.wd); clearTimeout(V.rt);
+  const r = V.rec; V.rec = null; pEl.classList.remove('listening');
+  if (r) { r.onend = null; try { r.abort(); } catch {} }
 }
 
 /* ---------- camera & recording ---------- */
