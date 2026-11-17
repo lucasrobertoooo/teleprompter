@@ -345,6 +345,7 @@ function LS_PREFIX_DEMO() { // isolate demo data from real cache
 }
 $('#loginForm').onsubmit = async e => {
   e.preventDefault();
+  if (!CONFIG) return location.reload();
   const pw = $('#loginPw').value; $('#loginErr').textContent = ''; $('#loginBtn').disabled = true; $('#loginBtn').textContent = 'Verificando…';
   try {
     const key = await deriveKey(pw, CONFIG.salt, CONFIG.iter);
@@ -374,6 +375,8 @@ $('#setupForm').onsubmit = async e => {
     let info;
     try { info = await gh.req('GET', ''); } catch (x) { throw new Error(x.status === 401 ? 'Token inválido.' : x.status === 404 ? 'Repositório não encontrado ou token sem acesso a ele.' : 'Erro ao acessar o GitHub (' + x.message + ').'); }
     const def = info.default_branch || 'main';
+    try { await gh.req('GET', '/contents/config.json?ref=' + def); throw new Error('Este repositório já está configurado. Aguarde 1 minuto e recarregue a página para entrar com a senha.'); }
+    catch (x) { if (x.status !== 404) throw x; }
     try { await gh.req('GET', '/git/ref/heads/data'); }
     catch (x) {
       if (x.status !== 404) throw x;
