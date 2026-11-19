@@ -14,7 +14,7 @@ Teleprompter para navegador, pensado para iPhone e iPad. Os roteiros ficam guard
 - `# Título` vira seção (botão ☰ para pular). `[PAUSA]` aparece como nota discreta. `**palavra**` em negrito.
 - Tocar na tela inicia/pausa; arrastar ajusta a posição.
 - Botão ⇆ (barra de cima) espelha o texto para vidro de teleprompter.
-- Botão 🎙 liga o modo voz: o texto acompanha a fala, tolera improvisos e trechos pulados.
+- Botão 🎙 liga o modo voz: o texto acompanha a fala, tolera improvisos e trechos pulados. Falando fora do texto, ele rola devagar; ⤒/⤓ (ou ←/→ no pedal) pulam de bloco.
 - Controle/pedal Bluetooth: espaço = iniciar/pausar, ←/→ ou PageUp/PageDown = voltar/avançar, +/− = velocidade.
 - Funciona sem internet depois de aberto uma vez; as alterações sobem quando a conexão voltar.
 - `?demo` no endereço abre um modo de teste sem login (nada é salvo).

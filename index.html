@@ -101,6 +101,8 @@ a{color:#64a8ff}
 #pbottom{gap:4px}
 .pbar button.on{background:var(--accent);color:#fff}
 #prompter.voice #pSlower,#prompter.voice #pFaster,#prompter.voice #pspeed{display:none}
+#pPrev,#pNext{display:none}
+#prompter.voice #pPrev,#prompter.voice #pNext{display:inline-block}
 #vdot{display:none;color:var(--ok);font-size:12px;font-weight:700;white-space:nowrap}
 #prompter.listening #vdot{display:inline}
 #ptext .w.said{opacity:.4}
@@ -224,6 +226,8 @@ Dicas:
     <button id="pPlay" class="big" aria-label="Iniciar">▶</button>
     <button id="pFaster" aria-label="Mais rápido">+</button>
     <span id="pspeed"></span>
+    <button id="pPrev" aria-label="Bloco anterior" title="Bloco anterior">⤒</button>
+    <button id="pNext" aria-label="Próximo bloco" title="Próximo bloco">⤓</button>
     <button id="pVoice" aria-label="Acompanhar a voz" title="Acompanhar a voz">🎙</button>
     <button id="pFontDown" aria-label="Diminuir fonte">A−</button>
     <button id="pFontUp" aria-label="Aumentar fonte">A+</button>
@@ -656,7 +660,7 @@ $('#edMore').onclick = () => menu([
 ]);
 
 /* ---------- prompter ---------- */
-const DEF = { speed: 5, fontSize: 44, lineHeight: 1.35, margin: 6, guide: 0.3, showGuide: true, countdown: 3, align: 'left', theme: 'dark', mirrorH: false, mirrorV: false, upper: false, bold: true, camera: 'off', overlay: 0.45, tapPlay: true, voice: false };
+const DEF = { speed: 5, fontSize: 44, lineHeight: 1.35, margin: 6, guide: 0.3, showGuide: true, countdown: 3, align: 'left', theme: 'dark', mirrorH: false, mirrorV: false, upper: false, bold: true, camera: 'off', overlay: 0.45, tapPlay: true, voice: false, voiceCreep: true };
 let S = { ...DEF, ...LS.get('settings', {}) };
 const saveS = () => LS.set('settings', S);
 const THEMES = { dark: ['#000', '#fff'], light: ['#fff', '#000'], yellow: ['#000', '#ffd60a'], green: ['#000', '#5cff7a'] };
@@ -728,7 +732,13 @@ function loop(t) {
   const dt = Math.min(0.25, (t - P.last) / 1000); P.last = t;
   if (!P.drag && S.voice) {
     P.elapsed += dt;
-    if (V.target != null) P.y += (V.target - P.y) * Math.min(1, dt * 4);
+    const now = performance.now();
+    if (S.voiceCreep && now - V.heard < 1600 && now - V.matched > 2500) {
+      // talking but off-script (explaining in your own words): keep the text flowing gently
+      V.target = null;
+      P.y = Math.min(P.max, P.y + pxPerSec() * 0.8 * dt);
+      if (now - V.synced > 600) { V.synced = now; voiceSyncFromPosition(); }
+    } else if (V.target != null) P.y += (V.target - P.y) * Math.min(1, dt * 4);
   } else if (!P.drag) {
     P.y += pxPerSec() * dt; P.elapsed += dt;
     if (P.y >= P.max) { P.y = P.max; draw(); pause(); return; }
@@ -757,7 +767,19 @@ function showCtl() { pEl.classList.remove('hidectl'); clearTimeout(P.hideT); if 
 function autoHide() { clearTimeout(P.hideT); P.hideT = setTimeout(() => { if (P.playing && !document.querySelector('.sheet.on')) pEl.classList.add('hidectl'); }, 2200); }
 function setSpeed(v) { S.speed = Math.round(Math.min(30, Math.max(0.5, v)) * 10) / 10; saveS(); $('#pspeed').textContent = S.speed.toFixed(1) + '×'; syncSetUI(); draw(); }
 function setFont(v) { S.fontSize = Math.min(140, Math.max(16, v)); saveS(); applyStyle(); syncSetUI(); }
-function jump(dy) { P.y = Math.min(P.max, Math.max(0, P.y + dy)); draw(); }
+function jump(dy) { P.y = Math.min(P.max, Math.max(0, P.y + dy)); if (S.voice) reanchor(); draw(); }
+function reanchor() { V.target = null; voiceSyncFromPosition(); V.matched = performance.now(); }
+function blocks() { return [...ptext.querySelectorAll('h2, p:not(.gap):not(.end)')]; }
+function gotoBlock(dir) {
+  const line = P.y + S.guide * stage.clientHeight, bs = blocks();
+  let el = null;
+  if (dir > 0) el = bs.find(b => b.offsetTop > line + 4);
+  else { const before = bs.filter(b => b.offsetTop < line - 4); el = before[before.length - 1]; }
+  if (!el) return;
+  P.y = Math.min(P.max, Math.max(0, el.offsetTop - S.guide * stage.clientHeight));
+  if (S.voice) reanchor();
+  draw(); showCtl();
+}
 
 function openPrompter(id) {
   P.id = id; P.y = 0; P.elapsed = 0; P.max = 0; V.cur = 0; V.marked = 0; V.target = null;
@@ -777,6 +799,8 @@ async function closePrompter() {
 $('#pClose').onclick = closePrompter;
 $('#pPlay').onclick = toggle;
 $('#pRestart').onclick = () => { pause(); P.y = 0; P.elapsed = 0; V.cur = 0; V.target = null; markSaid(); draw(); };
+$('#pNext').onclick = () => gotoBlock(1);
+$('#pPrev').onclick = () => gotoBlock(-1);
 $('#pMirror').onclick = () => { S.mirrorH = !S.mirrorH; saveS(); applyStyle(); syncSetUI(); toast(S.mirrorH ? 'Texto espelhado (para vidro de teleprompter)' : 'Texto normal'); };
 $('#pVoice').onclick = () => {
   if (!S.voice && !SR) return toast('Este navegador não reconhece voz. No iPhone use o Safari atualizado.', 4500);
@@ -799,7 +823,7 @@ $('#secList').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
   const h = b.dataset.s === 'top' ? null : ptext.querySelectorAll('h2')[+b.dataset.s];
   P.y = h ? Math.min(P.max, Math.max(0, h.offsetTop - S.guide * stage.clientHeight)) : 0;
-  if (S.voice) { voiceSyncFromPosition(); V.target = null; }
+  if (S.voice) reanchor();
   draw(); closeSheets();
 };
 // touch / drag / tap
@@ -819,7 +843,7 @@ const endDrag = e => {
     if (P.playing && pEl.classList.contains('hidectl') && !S.tapPlay) return showCtl();
     if (S.tapPlay) toggle(); else showCtl();
   }
-  if (d.moved && S.voice) { voiceSyncFromPosition(); V.target = null; }
+  if (d.moved && S.voice) reanchor();
   if (P.playing) P.last = performance.now();
 };
 stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercancel', endDrag);
@@ -833,8 +857,8 @@ document.addEventListener('keydown', e => {
   if (k === ' ' || k === 'Enter' || k === 'MediaPlayPause' || k === 'k') toggle();
   else if (k === 'ArrowDown' || k === 'ArrowRight' && e.shiftKey) jump(line);
   else if (k === 'ArrowUp' || k === 'ArrowLeft' && e.shiftKey) jump(-line);
-  else if (k === 'PageDown' || k === 'ArrowRight') jump(page);
-  else if (k === 'PageUp' || k === 'ArrowLeft') jump(-page);
+  else if (k === 'PageDown' || k === 'ArrowRight') S.voice ? gotoBlock(1) : jump(page);
+  else if (k === 'PageUp' || k === 'ArrowLeft') S.voice ? gotoBlock(-1) : jump(-page);
   else if (k === '+' || k === '=' || k === ']') $('#pFaster').click();
   else if (k === '-' || k === '_' || k === '[') $('#pSlower').click();
   else if (k === 'Home' || k === '0') $('#pRestart').click();
@@ -859,6 +883,7 @@ const FIELDS = [
   ['bold', 'Letra em negrito', 'check'],
   ['upper', 'TUDO MAIÚSCULO', 'check'],
   ['voice', 'Acompanhar a voz (rolagem automática pela fala)', 'check'],
+  ['voiceCreep', 'Modo voz: rolar devagar quando você fala fora do texto', 'check'],
   ['mirrorH', 'Espelhar texto / inverter (vidro de teleprompter)', 'check'],
   ['mirrorV', 'Inverter de cabeça para baixo', 'check'],
   ['camera', 'Câmera de fundo / gravar', 'select', [['off', 'Desligada'], ['user', 'Frontal'], ['environment', 'Traseira']]],
@@ -871,7 +896,7 @@ function buildSettings() {
     return `<div class="set"><label for="s_${k}">${label}</label><select id="s_${k}" data-k="${k}">${a.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>`;
   }).join('') + '<div style="margin-top:14px" class="row"><button id="sReset" style="flex:1">Restaurar padrão</button><button class="primary" id="sDone" style="flex:1">Pronto</button></div>' +
   '<button id="sVoiceLog" style="width:100%;margin-top:10px">🎙 Diagnóstico do modo voz</button>' +
-  '<p class="muted" style="margin-top:14px">Controle remoto/teclado Bluetooth: espaço = iniciar/pausar · ←/→ ou PageUp/PageDown = voltar/avançar · ↑/↓ = linha · +/− = velocidade.</p>';
+  '<p class="muted" style="margin-top:14px">Controle remoto/teclado Bluetooth: espaço = iniciar/pausar · ←/→ ou PageUp/PageDown = voltar/avançar (no modo voz: bloco anterior/próximo) · ↑/↓ = linha · +/− = velocidade.</p>';
   syncSetUI();
   $('#sDone').onclick = closeSheets;
   $('#sVoiceLog').onclick = showVoiceLog;
@@ -896,7 +921,7 @@ $('#setBody').addEventListener('input', e => {
 
 /* ---------- voice follow ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const V = { rec: null, on: false, cur: 0, target: null, marked: 0, miss: 0, lastEvt: 0, wd: 0, rt: 0, fails: 0, stopping: 0, everHeard: false, err: '' };
+const V = { rec: null, on: false, cur: 0, target: null, marked: 0, miss: 0, lastEvt: 0, wd: 0, rt: 0, fails: 0, stopping: 0, everHeard: false, err: '', heard: 0, matched: 0, synced: 0 };
 function lev(a, b, max) {
   if (Math.abs(a.length - b.length) > max) return max + 1;
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -962,7 +987,7 @@ function onSpoken(txt) {
     if (V.miss >= 3 && sp.length >= 5) best = bestMatch(sp, 0, WORDS.length - 1, true);
     if (best < 0) return;
   }
-  V.miss = 0;
+  V.miss = 0; V.matched = performance.now();
   if (best + 1 === V.cur) return;
   V.cur = best + 1; markSaid();
   const el = wordSpan(best + 1) || wordSpan(best);
@@ -986,7 +1011,7 @@ function startVoice() {
   r.onresult = e => {
     let txt = '';
     for (let i = Math.max(0, e.results.length - 2); i < e.results.length; i++) txt += ' ' + e.results[i][0].transcript;
-    setVoiceStatus('● ouvindo');
+    setVoiceStatus('● ouvindo'); V.heard = performance.now();
     onSpoken(txt);
     if (++nres % 5 === 1) vlog('ouviu: "' + txt.trim().split(/\s+/).slice(-6).join(' ') + '" → palavra ' + V.cur);
   };
@@ -1006,7 +1031,7 @@ function startVoice() {
       if (V.on && V.rec === r) try { r.start(); vlog('religando'); } catch (x) { vlog('falha ao religar: ' + x.message); }
     }, 120);
   };
-  V.rec = r; V.on = true; V.target = null; V.miss = 0;
+  V.rec = r; V.on = true; V.target = null; V.miss = 0; V.matched = V.heard = performance.now(); V.heard = 0;
   vlog('iniciando (ponto do texto: palavra ' + V.cur + ')');
   try { r.start(); } catch (x) { vlog('falha ao iniciar: ' + x.message); toast('Não foi possível iniciar o microfone.'); V.on = false; return false; }
   return true;
