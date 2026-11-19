@@ -738,8 +738,8 @@ function loop(t) {
 function play(skipCountdown) {
   if (P.playing || P.cd) return;
   if (P.y >= P.max - 1) P.y = 0;
-  if (S.voice) { voiceSyncFromPosition(); if (!startVoice()) return; }
-  const go = () => { P.playing = true; P.last = performance.now(); $('#pPlay').textContent = '⏸'; P.raf = requestAnimationFrame(loop); autoHide(); };
+  if (S.voice) voiceSyncFromPosition();
+  const go = () => { if (S.voice && !startVoice()) return; P.playing = true; P.last = performance.now(); $('#pPlay').textContent = '⏸'; P.raf = requestAnimationFrame(loop); autoHide(); };
   if (S.countdown > 0 && !skipCountdown) {
     let n = S.countdown; const el = $('#countdown'); el.textContent = n; el.classList.add('on');
     P.cd = setInterval(() => { n--; if (n <= 0) { cancelCountdown(); go(); } else el.textContent = n; }, 1000);
@@ -870,9 +870,11 @@ function buildSettings() {
     if (type === 'check') return `<div class="set"><label for="s_${k}">${label}</label><input id="s_${k}" data-k="${k}" type="checkbox"></div>`;
     return `<div class="set"><label for="s_${k}">${label}</label><select id="s_${k}" data-k="${k}">${a.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>`;
   }).join('') + '<div style="margin-top:14px" class="row"><button id="sReset" style="flex:1">Restaurar padrão</button><button class="primary" id="sDone" style="flex:1">Pronto</button></div>' +
+  '<button id="sVoiceLog" style="width:100%;margin-top:10px">🎙 Diagnóstico do modo voz</button>' +
   '<p class="muted" style="margin-top:14px">Controle remoto/teclado Bluetooth: espaço = iniciar/pausar · ←/→ ou PageUp/PageDown = voltar/avançar · ↑/↓ = linha · +/− = velocidade.</p>';
   syncSetUI();
   $('#sDone').onclick = closeSheets;
+  $('#sVoiceLog').onclick = showVoiceLog;
   $('#sReset').onclick = () => { const cam = S.camera; S = { ...DEF, camera: cam }; saveS(); applyStyle(); syncSetUI(); };
 }
 function syncSetUI() {
@@ -966,73 +968,63 @@ function onSpoken(txt) {
   const el = wordSpan(best + 1) || wordSpan(best);
   if (el) V.target = Math.min(P.max, Math.max(0, el.offsetTop - S.guide * stage.clientHeight));
 }
-/* One recognizer per reading session (iOS can refuse new ones created outside a tap),
-   restarted in place whenever Safari ends it. A gentle watchdog only nudges it with stop()
-   after a long silence, and rebuilds it only if Safari never answers. */
+/* Same engine as the version confirmed working on iPhone: one continuous recognizer,
+   restarted in place when Safari ends it. Every event is logged for the in-app diagnostic. */
+const VLOG = [];
+function vlog(msg) {
+  const d = new Date();
+  VLOG.push(d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0').slice(0, 1) + '  ' + msg);
+  if (VLOG.length > 200) VLOG.shift();
+}
 function setVoiceStatus(t, cls) { const el = $('#vdot'); el.textContent = t; el.style.color = cls === 'err' ? 'var(--warn)' : cls === 'wait' ? '#aaa' : 'var(--ok)'; }
-function makeRec() {
+function startVoice() {
+  if (!SR) { toast('Este navegador não reconhece voz.'); vlog('sem suporte a reconhecimento de voz'); return false; }
+  stopVoice();
   const r = new SR();
   r.lang = 'pt-BR'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  let nres = 0;
   r.onresult = e => {
-    if (V.rec !== r) return;
-    V.lastEvt = performance.now(); V.fails = 0; setVoiceStatus('● ouvindo');
-    if (!P.playing) return; // still in countdown
-    let txt = '', n = 0;
+    let txt = '';
     for (let i = Math.max(0, e.results.length - 2); i < e.results.length; i++) txt += ' ' + e.results[i][0].transcript;
-    for (let i = 0; i < e.results.length; i++) n += (e.results[i][0].transcript.match(/\S+/g) || []).length;
+    setVoiceStatus('● ouvindo');
     onSpoken(txt);
-    if (n > 45 && !V.stopping) { V.stopping = performance.now(); try { r.stop(); } catch {} } // long utterance: refresh
+    if (++nres % 5 === 1) vlog('ouviu: "' + txt.trim().split(/\s+/).slice(-6).join(' ') + '" → palavra ' + V.cur);
   };
   r.onerror = e => {
-    if (V.rec !== r) return;
-    V.err = e.error;
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      if (V.everHeard) { setVoiceStatus('⚠ toque ▶ p/ reativar', 'err'); toast('O iPhone pausou o microfone. Toque ▶ para continuar.', 4500); }
-      else toast('Permita o uso do microfone para o modo voz (Ajustes do iPhone → Safari → Microfone).', 6000);
-      pause();
-    } else if (e.error === 'network') setVoiceStatus('⚠ sem internet', 'err');
+    vlog('ERRO: ' + e.error + (e.message ? ' (' + e.message + ')' : ''));
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toast('Permita o uso do microfone para o modo voz.', 4500); pause(); }
+    else if (e.error === 'network') setVoiceStatus('⚠ sem internet', 'err');
     else if (e.error !== 'no-speech' && e.error !== 'aborted') setVoiceStatus('⚠ ' + e.error, 'err');
   };
-  r.onstart = () => { if (V.rec === r) { V.lastEvt = performance.now(); V.stopping = 0; pEl.classList.add('listening'); setVoiceStatus('● ouvindo'); } };
-  r.onaudiostart = r.onspeechstart = () => { if (V.rec === r) { V.lastEvt = performance.now(); V.everHeard = true; } };
+  r.onstart = () => { vlog('microfone ligado'); pEl.classList.add('listening'); setVoiceStatus('● ouvindo'); };
+  r.onaudiostart = () => vlog('áudio chegando');
+  r.onspeechstart = () => vlog('fala detectada');
   r.onend = () => {
-    if (V.rec !== r || !V.on) return;
-    V.stopping = 0; setVoiceStatus('○ reconectando', 'wait');
-    clearTimeout(V.rt);
-    V.rt = setTimeout(() => restartSame(r), V.fails ? Math.min(2000, 250 * V.fails) : 100);
+    vlog('sessão encerrada pelo Safari');
+    pEl.classList.remove('listening');
+    if (V.on && V.rec === r) setTimeout(() => {
+      if (V.on && V.rec === r) try { r.start(); vlog('religando'); } catch (x) { vlog('falha ao religar: ' + x.message); }
+    }, 120);
   };
-  return r;
-}
-function restartSame(r) {
-  if (!V.on || V.rec !== r) return;
-  try { r.start(); V.lastEvt = performance.now(); }
-  catch { V.fails++; clearTimeout(V.rt); V.rt = setTimeout(() => restartSame(r), Math.min(2000, 250 * V.fails)); }
-}
-function startVoice() { // must be called directly from the tap
-  if (!SR) { toast('Este navegador não reconhece voz.'); return false; }
-  stopVoice();
-  V.on = true; V.target = null; V.miss = 0; V.fails = 0; V.stopping = 0;
-  V.rec = makeRec();
-  setVoiceStatus('○ iniciando', 'wait'); pEl.classList.add('listening');
-  try { V.rec.start(); } catch (x) { V.on = false; V.rec = null; pEl.classList.remove('listening'); toast('Não foi possível iniciar o microfone.'); return false; }
-  V.lastEvt = performance.now();
-  clearInterval(V.wd);
-  V.wd = setInterval(() => {
-    if (!V.on || !V.rec) return;
-    const now = performance.now();
-    if (V.stopping && now - V.stopping > 3000) { // Safari never ended it: rebuild once
-      const old = V.rec; old.onend = null; try { old.abort(); } catch {}
-      V.rec = makeRec(); V.stopping = 0; restartSame(V.rec);
-    } else if (!V.stopping && now - V.lastEvt > 9000) { // long silence: gentle refresh
-      V.stopping = now; try { V.rec.stop(); } catch {}
-    }
-  }, 1000);
+  V.rec = r; V.on = true; V.target = null; V.miss = 0;
+  vlog('iniciando (ponto do texto: palavra ' + V.cur + ')');
+  try { r.start(); } catch (x) { vlog('falha ao iniciar: ' + x.message); toast('Não foi possível iniciar o microfone.'); V.on = false; return false; }
   return true;
 }
 function stopVoice() {
-  V.on = false; clearInterval(V.wd); clearTimeout(V.rt);
-  const r = V.rec; V.rec = null; pEl.classList.remove('listening');
-  if (r) { r.onend = null; try { r.abort(); } catch {} }
+  if (V.on) vlog('parado');
+  V.on = false; const r = V.rec; V.rec = null; pEl.classList.remove('listening');
+  if (r) try { r.abort(); } catch {}
+}
+function showVoiceLog() {
+  const txt = VLOG.length ? VLOG.join('\n') : '(vazio — ligue o modo voz e toque ▶ para gerar eventos)';
+  const info = `Navegador: ${navigator.userAgent}\nReconhecimento: ${SR ? 'disponível' : 'NÃO disponível'}\nApp na Tela de Início: ${(navigator.standalone || matchMedia('(display-mode: standalone)').matches) ? 'sim' : 'não'}\n\n`;
+  $('#menuBody').innerHTML = `<h3>Diagnóstico do modo voz</h3><pre id="vlogPre" style="white-space:pre-wrap;font-size:12px;background:var(--bg);padding:10px;border-radius:10px;max-height:45vh;overflow:auto;user-select:text;-webkit-user-select:text">${esc(info + txt)}</pre><button id="vlogCopy">Copiar</button><button data-close>Fechar</button>`;
+  $('#menuBody').onclick = e => {
+    if (e.target.id === 'vlogCopy') navigator.clipboard.writeText(info + txt).then(() => toast('Copiado')).catch(() => toast('Selecione o texto e copie manualmente'));
+    if (e.target.dataset.close != null) closeSheets();
+  };
+  openSheet('#sheetMenu');
 }
 
 /* ---------- camera & recording ---------- */
