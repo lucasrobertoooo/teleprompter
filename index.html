@@ -86,7 +86,7 @@ a{color:#64a8ff}
 #cam.selfie{transform:scaleX(-1)}
 #prompter.camera #cam{display:block}
 #stage{position:absolute;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
-#ptext{position:absolute;left:0;right:0;top:0;will-change:transform;white-space:pre-wrap;word-wrap:break-word}
+#ptext{position:absolute;left:0;right:0;top:0;will-change:transform;white-space:pre-wrap;overflow-wrap:normal;word-break:normal;hyphens:none}
 #ptext p{margin:0}
 #ptext p.gap{height:.7em}
 #ptext h2{font-size:.7em;margin:.6em 0 .3em;padding:.15em .4em;border-radius:.2em;background:rgba(255,59,48,.22);color:inherit;display:inline-block;font-weight:700}
@@ -660,7 +660,7 @@ $('#edMore').onclick = () => menu([
 ]);
 
 /* ---------- prompter ---------- */
-const DEF = { speed: 5, fontSize: 44, lineHeight: 1.35, margin: 6, guide: 0.3, showGuide: true, countdown: 3, align: 'left', theme: 'dark', mirrorH: false, mirrorV: false, upper: false, bold: true, camera: 'off', overlay: 0.45, tapPlay: true, voice: false, voiceCreep: true };
+const DEF = { speed: 5, fontSize: 44, lineHeight: 1.35, margin: 6, guide: 0.3, showGuide: true, countdown: 3, align: 'left', theme: 'dark', mirrorH: false, mirrorV: false, upper: false, bold: true, camera: 'off', overlay: 0.45, tapPlay: true, voice: false, voiceCreep: true, focus: 'off' };
 let S = { ...DEF, ...LS.get('settings', {}) };
 const saveS = () => LS.set('settings', S);
 const THEMES = { dark: ['#000', '#fff'], light: ['#fff', '#000'], yellow: ['#000', '#ffd60a'], green: ['#000', '#5cff7a'] };
@@ -708,11 +708,24 @@ function applyStyle() {
   });
   const g = $('#guide'); g.style.display = S.showGuide ? '' : 'none';
   g.style.top = (S.guide * 100) + '%'; g.style.height = (S.fontSize * S.lineHeight) + 'px';
+  applyFocus();
   measure();
   $('#pspeed').textContent = S.speed.toFixed(1) + '×';
   $('#pMirror').classList.toggle('on', !!S.mirrorH);
   $('#pVoice').classList.toggle('on', !!S.voice);
   pEl.classList.toggle('voice', !!S.voice);
+}
+// Focus band: dims everything except the line being read, so the eye has no reason to wander
+function applyFocus() {
+  const lvl = { off: 1, soft: 0.35, strong: 0.12 }[S.focus] ?? 1;
+  let m = 'none';
+  if (lvl < 1) {
+    const h = stage.clientHeight || innerHeight, line = S.fontSize * S.lineHeight;
+    const top = S.guide * h, a = `rgba(0,0,0,${lvl})`;
+    const p = v => Math.max(0, Math.min(h, v)).toFixed(0) + 'px';
+    m = `linear-gradient(to bottom, ${a} 0px, ${a} ${p(top - line * 0.9)}, #000 ${p(top - line * 0.15)}, #000 ${p(top + line * 1.9)}, ${a} ${p(top + line * 2.9)}, ${a} 100%)`;
+  }
+  stage.style.webkitMaskImage = stage.style.maskImage = m;
 }
 function measure() {
   const ratio = P.max ? P.y / P.max : 0, h = stage.clientHeight;
@@ -866,14 +879,15 @@ document.addEventListener('keydown', e => {
   else hit = false;
   if (hit) { e.preventDefault(); showCtl(); }
 });
-window.addEventListener('resize', () => { if (current === 'prompter') { const g = $('#guide'); measure(); } });
+window.addEventListener('resize', () => { if (current === 'prompter') { measure(); applyFocus(); } });
 
 // settings sheet
 const FIELDS = [
   ['speed', 'Velocidade', 'range', 0.5, 30, 0.5, v => v.toFixed(1) + '×'],
   ['fontSize', 'Tamanho da letra', 'range', 16, 140, 2, v => v + 'px'],
   ['lineHeight', 'Espaço entre linhas', 'range', 1, 2.2, 0.05, v => v.toFixed(2)],
-  ['margin', 'Margens laterais', 'range', 0, 30, 1, v => v + '%'],
+  ['margin', 'Margens laterais (coluna mais estreita = olho mexe menos)', 'range', 0, 40, 1, v => v + '%'],
+  ['focus', 'Destacar só a linha de leitura', 'select', [['off', 'Desligado'], ['soft', 'Suave'], ['strong', 'Forte']]],
   ['guide', 'Posição da linha de leitura', 'range', 0.05, 0.7, 0.01, v => Math.round(v * 100) + '%'],
   ['showGuide', 'Mostrar linha de leitura', 'check'],
   ['countdown', 'Contagem antes de iniciar', 'select', [[0, 'Nenhuma'], [3, '3 s'], [5, '5 s'], [10, '10 s']]],
@@ -895,11 +909,17 @@ function buildSettings() {
     if (type === 'check') return `<div class="set"><label for="s_${k}">${label}</label><input id="s_${k}" data-k="${k}" type="checkbox"></div>`;
     return `<div class="set"><label for="s_${k}">${label}</label><select id="s_${k}" data-k="${k}">${a.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>`;
   }).join('') + '<div style="margin-top:14px" class="row"><button id="sReset" style="flex:1">Restaurar padrão</button><button class="primary" id="sDone" style="flex:1">Pronto</button></div>' +
+  '<button id="sGaze" style="width:100%;margin-top:10px">👁 Aplicar modo olhar discreto</button>' +
   '<button id="sVoiceLog" style="width:100%;margin-top:10px">🎙 Diagnóstico do modo voz</button>' +
   '<p class="muted" style="margin-top:14px">Controle remoto/teclado Bluetooth: espaço = iniciar/pausar · ←/→ ou PageUp/PageDown = voltar/avançar (no modo voz: bloco anterior/próximo) · ↑/↓ = linha · +/− = velocidade.</p>';
   syncSetUI();
   $('#sDone').onclick = closeSheets;
   $('#sVoiceLog').onclick = showVoiceLog;
+  $('#sGaze').onclick = () => {
+    Object.assign(S, { margin: 18, align: 'center', focus: 'strong', guide: 0.18, lineHeight: 1.25, fontSize: Math.min(S.fontSize, 40) });
+    saveS(); applyStyle(); syncSetUI();
+    toast('Coluna estreita, centralizada, linha no alto e foco só na linha lida. Ajuste à vontade.', 4500);
+  };
   $('#sReset').onclick = () => { const cam = S.camera; S = { ...DEF, camera: cam }; saveS(); applyStyle(); syncSetUI(); };
 }
 function syncSetUI() {
