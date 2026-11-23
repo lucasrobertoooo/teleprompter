@@ -494,7 +494,7 @@ function schedulePush(id, ms = 2500) {
 }
 async function saveDoc(d) {
   d.updated = Date.now(); docs[d.id] = d;
-  const blob = await encryptStr(DEK, JSON.stringify({ title: d.title, body: d.body, updated: d.updated }));
+  const blob = await encryptStr(DEK, JSON.stringify({ title: d.title, body: d.body, updated: d.updated, ...(d.src ? { src: d.src } : {}) }));
   const e = entries[d.id] || { sha: null, rev: 0 };
   entries[d.id] = { ...e, blob, dirty: true, rev: (e.rev || 0) + 1 };
   persist(); schedulePush(d.id);
@@ -511,6 +511,42 @@ async function enterApp() {
   for (const id of Object.keys(entries)) await decodeEntry(id);
   show('list'); renderList(); syncAll();
   if (DEMO && !Object.keys(entries).length) { await saveDoc({ id: newId(), title: 'Roteiro de exemplo', body: SAMPLE }); renderList(); }
+  handleImport();
+}
+/* ---------- receber roteiro por link (botão "Enviar" da Central) ----------
+   O link traz #import=<base64url de {k, t, b}>. O texto fica só no endereço (o # não vai a servidor nenhum)
+   e é apagado do endereço assim que a página abre. Mesmo k = mesmo roteiro: atualiza em vez de duplicar. */
+let PENDING_IMPORT = (() => {
+  const m = location.hash.match(/^#import=([\w-]+)/);
+  if (m) {
+    try { sessionStorage.setItem('tp.import', m[1]); } catch {}
+    history.replaceState(null, '', location.pathname + location.search);
+    return m[1];
+  }
+  try { return sessionStorage.getItem('tp.import'); } catch { return null; }
+})();
+function decodeImport(s) {
+  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  return JSON.parse(td.decode(Uint8Array.from(b, c => c.charCodeAt(0))));
+}
+async function handleImport() {
+  if (!PENDING_IMPORT) return;
+  const raw = PENDING_IMPORT; PENDING_IMPORT = null;
+  try { sessionStorage.removeItem('tp.import'); } catch {}
+  let data;
+  try { data = decodeImport(raw); } catch { return toast('O link do roteiro veio incompleto. Tente enviar de novo.', 4500); }
+  await syncAll(); // pega o que já existe nos outros aparelhos antes de decidir se é novo
+  let d = data.k && Object.values(docs).find(x => x.src === data.k);
+  const title = data.t || 'Roteiro da Central', body = (data.b || '').replace(/\r\n?/g, '\n');
+  if (d) {
+    if (d.title !== title || d.body !== body) { d = { ...d, title, body, src: data.k }; await saveDoc(d); toast('Roteiro atualizado com a versão da Central ✓', 4000); }
+    else toast('Este roteiro já estava igual ao da Central ✓', 3500);
+  } else {
+    d = { id: newId(), title, body, src: data.k }; await saveDoc(d);
+    toast('Roteiro recebido da Central ✓ Já vai aparecer nos outros aparelhos.', 4500);
+  }
+  schedulePush(d.id, 0);
+  openEditor(d.id);
 }
 const SAMPLE = `# Abertura
 Olá! Este é um roteiro de exemplo para testar o teleprompter.
